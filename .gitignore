@@ -1,0 +1,4 @@
+.cache/
+.kdev4/
+build/
+*.kdev4

@@ -1,0 +1,11 @@
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Werror -Wextra")
+# set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Boost 1.71 REQUIRED COMPONENTS program_options)
+# find_package(PkgConfig REQUIRED)
+find_package(ZLIB REQUIRED)
+FIND_LIBRARY(CRYPTOPP crypto++ /usr/lib) ## location of libcryptopp.so or libcryptopp.a)
+include_directories(${Boost_INCLUDE_DIR})
+
+add_executable(mlsteg bpnn.cc base64.cc)
+target_link_libraries(mlsteg PRIVATE ${Boost_LIBRARIES} ZLIB::ZLIB cryptopp)
+install(TARGETS mlsteg RUNTIME DESTINATION bin)
