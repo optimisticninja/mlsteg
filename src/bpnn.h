@@ -100,4 +100,5 @@ public:
   }
 
   vector<vector<perceptron<T>>>& net() { return _net; };
+  void net(vector<vector<perceptron<T>>>& net) { _net = net; };
 };

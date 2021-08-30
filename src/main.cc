@@ -28,7 +28,7 @@ using namespace CryptoPP;
 
 namespace po = boost::program_options;
 
-enum { SUCCESS, ERROR_IN_COMMAND_LINE, ERROR_UNHANDLED_EXCEPTION };
+enum { SUCCESS, ERROR_IN_COMMAND_LINE, ERROR_UNHANDLED_EXCEPTION, ERROR_INVALID_JSON };
 
 static void help(const po::options_description& desc)
 {
@@ -91,17 +91,11 @@ static void steg_data(const string& password, const string& input_file, const st
 
     cout << "plain text: " << (disable_compression ? input_data : compressed) << endl;
 
-    /*********************************\
-    \*********************************/
-
     try {
       CBC_Mode<AES>::Encryption e;
       e.SetKeyWithIV(key, key.size(), iv);
-
       StringSource s(disable_compression == true ? input_data : compressed, true,
-                     new StreamTransformationFilter(e,
-                                                    new StringSink(encrypted)) // StreamTransformationFilter
-      );                                                                       // StringSource
+                     new StreamTransformationFilter(e, new StringSink(encrypted)));
     } catch (const Exception& e) {
       cerr << e.what() << endl;
       exit(1);
@@ -139,14 +133,16 @@ static void steg_data(const string& password, const string& input_file, const st
   size_t i = 0;
   for (char c : alphabet)
     mapping[c] = i++;
-
+  for (auto& t : mapping)
+    cout << t.first << ": " << t.second << endl;
   // create expected data
   vector<float> expected;
   for (char c : encoded)
     expected.push_back(mapping[c] / 100);
 
   vector<size_t> shape = {16, 10, 24, encoded.length()};
-
+  cout << "shape: "
+       << "{16, 10, 24, " << encoded.length() << "}" << endl;
   // create magic inputs
   static default_random_engine gen;
   static uniform_real_distribution<float> dis2(0, 1);
@@ -161,7 +157,9 @@ static void steg_data(const string& password, const string& input_file, const st
   // dump network to JSON file
   Json::Value network;
   Json::Value layers(Json::arrayValue);
+  size_t j = 0;
   for (auto& layer : nn.net()) {
+    cout << j++ << endl;
     Json::Value l(Json::arrayValue);
     for (auto& neuron : layer) {
       Json::Value n;
@@ -176,6 +174,9 @@ static void steg_data(const string& password, const string& input_file, const st
   }
 
   network["layers"] = layers;
+  network["outputs"] = (unsigned) encoded.length();
+  network["activation"] = "tanh";
+  network["derivative"] = "sech";
 
   Json::StreamWriterBuilder builder;
   const std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
@@ -211,10 +212,42 @@ static void unsteg_data(const string& password, const string& input_file, const 
     cout << endl << footer;
   }
 
+  // parse json
   string decoding = "[*] Decoding network JSON...";
   cerr << decoding << endl;
-  // parse json
+  Json::Value network;
+  Json::Reader reader;
+  size_t num_outputs = 0;
+  vector<vector<perceptron<float>>> net;
+  if (reader.parse(data, network)) {
+    num_outputs = network["outputs"].asLargestInt();
+    for (auto& layer : network["layers"]) {
+      vector<perceptron<float>> l;
+      for (auto& neuron : layer) {
+        vector<float> w;
+        for (auto& weight : neuron["weights"])
+          w.push_back(weight.asFloat());
+        perceptron<float> p(w.size() - 1);
+        p.weights(w);
+        l.push_back(p);
+      }
+      net.push_back(l);
+    }
+  } else {
+    cerr << "ERROR: Invalid network JSON file" << endl;
+    exit(ERROR_INVALID_JSON);
+  }
+
   // build network
+  vector<size_t> shape;
+  for (size_t i = 0; i < net.size(); i++)
+    shape.push_back(net[i].size());
+  shape.push_back(num_outputs);
+  bpnn<float> nn(shape);
+  nn.net(net);
+  // TODO: Magic inputs
+  vector<float> outputs = nn.forward(inputs);
+
   // feed inputs through network
   // map output to characters
 

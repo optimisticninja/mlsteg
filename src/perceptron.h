@@ -61,6 +61,7 @@ public:
   T weight(size_t index) { return _weights[index]; }
   void weight(size_t index, T x) { _weights[index] = x; }
   vector<T> weights() { return _weights; }
+  void weights(const vector<T>& weights) { _weights = weights; }
   T output() { return _output; }
   T delta() { return _delta; }
   void delta(T x) { _delta = x; }
