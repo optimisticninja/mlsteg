@@ -100,10 +100,48 @@ The network will output the following after the stegging process:
 
 ## Usage
 
+```
+mlsteg - hide messages in neural network weights
+mlsteg options:
+  -h [ --help ]          print usage
+  -u [ --unsteg ]        unsteg message
+  -i [ --input ] arg     input file
+  -m [ --magic ] arg     magic inputs file
+  --map arg              mapping
+  -o [ --output ] arg    output file
+  -p [ --password ] arg  encryption password
+  --disable-compression  disable compression
+```
+
 ### Stegging
 
-`./mlsteg -i compile_commands.json -o test.json -p test`
+```bash
+$ ./mlsteg -i compile_commands.json -o test.json -p test
+[*] File size: 564 bytes
+[*] Encoding network...
+>iter=9999, lrate=0.010, error=0.0008
+```
 
 ### Unstegging
 
-`./mlsteg -u -i test.json -m inputs.json --map mappings.json -p test`
+```bash
+$ ./mlsteg -u -i test.json -m inputs.json --map mappings.json -p test 
+[*] Decoding network JSON...
+[*] Decrypting data...
+
+<<< BEGIN RECOVERED MESSAGE >>>
+
+[
+{
+  "directory": "/home/jonesy/git/nn/build/src",
+  "command": "/usr/bin/c++  -DBOOST_ALL_NO_LIB -DBOOST_PROGRAM_OPTIONS_DYN_LINK   -Wall -Werror -Wextra -g   -o CMakeFiles/mlsteg.dir/main.cc.o -c /home/jonesy/git/nn/src/main.cc",
+  "file": "/home/jonesy/git/nn/src/main.cc"
+},
+{
+  "directory": "/home/jonesy/git/nn/build/src",
+  "command": "/usr/bin/c++  -DBOOST_ALL_NO_LIB -DBOOST_PROGRAM_OPTIONS_DYN_LINK   -Wall -Werror -Wextra -g   -o CMakeFiles/mlsteg.dir/base64.cc.o -c /home/jonesy/git/nn/src/base64.cc",
+  "file": "/home/jonesy/git/nn/src/base64.cc"
+}
+]
+<<< END RECOVERED MESSAGE >>>
+```
