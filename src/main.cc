@@ -22,7 +22,7 @@
 
 #include "base64.h"
 #include "bpnn.h"
-#include "compression.h"
+// #include "compression.h"
 #include "types.h"
 #include "util.h"
 
@@ -55,7 +55,7 @@ static void help(const po::options_description& desc)
 }
 
 static void steg_data(const string& password, const string& input_file, const string& output_file,
-                      bool disable_compression)
+                      __attribute__((unused)) bool disable_compression)
 {
   string data;
   stringstream ss;
@@ -79,12 +79,12 @@ static void steg_data(const string& password, const string& input_file, const st
     exit(ERROR_IN_COMMAND_LINE);
   }
 
-  if (!disable_compression) {
-    string compressing = "[*] Compressing...";
-    cerr << compressing << endl;
-    lzma::compress(data, compressed);
-    cout << compressed << endl;
-  }
+  //   if (!disable_compression) {
+  //     string compressing = "[*] Compressing...";
+  //     cerr << compressing << endl;
+  //     lzma::compress(data, compressed);
+  //     cout << compressed << endl;
+  //   }
 
   if (password != "") {
     char purpose = 0; // unused by Crypto++
@@ -97,13 +97,13 @@ static void steg_data(const string& password, const string& input_file, const st
     pbkdf.DeriveKey(derived, sizeof(derived), purpose, (byte*) password.data(), password.size(), NULL, 0,
                     1024, 0.0f);
     vector<u8> data_vec(data.begin(), data.end());
-    vector<u8>& plaintext = disable_compression ? data_vec : compressed;
+    //     vector<u8>& plaintext = disable_compression ? data_vec : compressed;
 
     try {
       CBC_Mode<AES>::Encryption e;
       e.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
       //       string s(plaintext.begin(), plaintext.end())
-      StringSource ss(string(plaintext.begin(), plaintext.end()), true,
+      StringSource ss(string(data_vec.begin(), data_vec.end()), true,
                       new StreamTransformationFilter(e, new VectorSink(encrypted)));
     } catch (const Exception& e) {
       cerr << e.what() << endl;
@@ -111,16 +111,14 @@ static void steg_data(const string& password, const string& input_file, const st
     }
   }
 
-  cout << encrypted.size() << endl;
   string encoding = "[*] Encoding network...";
 
   // base64 encode message
   b64 base64;
   cerr << encoding << endl;
   string encoded =
-      password != ""
-          ? base64.encode(encrypted)
-          : base64.encode((disable_compression ? vector<u8>(data.begin(), data.end()) : compressed));
+      password != "" ? base64.encode(encrypted) : base64.encode(vector<u8>(data.begin(), data.end()));
+  //           : base64.encode((disable_compression ? vector<u8>(data.begin(), data.end()) : compressed));
   string alphabet = base64.idx();
   random_shuffle(alphabet.begin(), alphabet.end());
 
@@ -200,7 +198,7 @@ static void steg_data(const string& password, const string& input_file, const st
 static void unsteg_data(const string& password, const string& input_file,
                         const string& magic_inputs_file = "inputs.json",
                         const string& mapping_file = "mappings.json", const string& output_file = "unstegged",
-                        bool disable_compression = false)
+                        __attribute__((unused)) bool disable_compression = false)
 {
   string data = "";
 
@@ -330,7 +328,6 @@ static void unsteg_data(const string& password, const string& input_file,
                     1024, 0.0f);
 
     try {
-      cout << decoded.size() << endl;
       CBC_Mode<AES>::Decryption d;
       d.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
       StringSource ss(decoded, true, new StreamTransformationFilter(d, new VectorSink(decrypted)));
@@ -341,37 +338,37 @@ static void unsteg_data(const string& password, const string& input_file,
   }
   // decompress
 
-  int decompressed_size = 0;
-  vector<u8> decompressed(data.size() * 2);
-  //   decrypted.push_back(0);
-  if (!disable_compression) {
-    string decompressing = "[*] Decompressing data...";
-    cerr << decompressing << endl;
-    decompressed_size = lzma::decompress(decrypted, decompressed);
-
-    if (decompressed_size < 1) {
-      cerr << "ERROR: Failure to decompress data" << endl;
-      exit(ERROR_UNHANDLED_EXCEPTION);
-    }
-  }
-
-  cout << decompressed_size << endl;
+  //   int decompressed_size = 0;
+  //   vector<u8> decompressed(data.size() * 2);
+  //   //   decrypted.push_back(0);
+  //   if (!disable_compression) {
+  //     string decompressing = "[*] Decompressing data...";
+  //     cerr << decompressing << endl;
+  //     decompressed_size = lzma::decompress(decrypted, decompressed);
+  //
+  //     if (decompressed_size < 1) {
+  //       cerr << "ERROR: Failure to decompress data" << endl;
+  //       exit(ERROR_UNHANDLED_EXCEPTION);
+  //     }
+  //   }
+  //
+  //   cout << decompressed_size << endl;
 
   if (output_file != "") {
     ofstream ofs(output_file, ios_base::out | ios_base::binary);
-    if (!disable_compression)
-      ofs.write(reinterpret_cast<const char*>(decompressed.data()), decompressed_size);
-    else
-      ofs.write(reinterpret_cast<const char*>(decrypted.data()), decrypted.size());
+    //     if (!disable_compression)
+    //       ofs.write(reinterpret_cast<const char*>(decompressed.data()), decompressed_size);
+    //     else
+    ofs.write(reinterpret_cast<const char*>(decrypted.data()), decrypted.size());
     ofs.close();
   } else {
     string header = "<<< BEGIN RECOVERED MESSAGE >>>";
     string footer = "<<< END RECOVERED MESSAGE >>>";
     cerr << endl << header << endl << endl;
-    if (!disable_compression)
-      cout.write(reinterpret_cast<const char*>(decompressed.data()), decompressed_size);
-    else
-      cout.write(reinterpret_cast<const char*>(decrypted.data()), decrypted.size());
+    //     if (!disable_compression)
+    //       cout.write(reinterpret_cast<const char*>(decompressed.data()), decompressed_size);
+    //     else
+    cout.write(reinterpret_cast<const char*>(decrypted.data()), decrypted.size());
     cerr << endl << footer << endl;
   }
 }
