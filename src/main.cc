@@ -204,9 +204,10 @@ static void steg_data(const string& password, const string& input_file, const st
 
   // Create magic inputs
   static default_random_engine gen;
-  static uniform_real_distribution<float> dis2(0, 1);
-  // FIXME: Why are random values all zero?
-  vector<float> inputs(shape[0], dis2(gen));
+  static uniform_real_distribution<float> dis(0, 1);
+  vector<float> inputs(shape[0]);
+  for (size_t i = 0; i < inputs.size(); i++)
+    inputs[i] = dis(gen);
   dump_magic_inputs(inputs);
 
   // Create sample data
