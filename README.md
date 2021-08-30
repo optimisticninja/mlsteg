@@ -22,9 +22,10 @@ The network will output the following after the stegging process:
 * Boost (program_options)
 * Crypto++
 * libjsoncpp
+* zlib
 
 ```bash
-sudo apt install cmake libboost-dev libcrypto++-dev libjsoncpp-dev
+sudo apt install cmake libboost-dev libcrypto++-dev libjsoncpp-dev libzlib-dev
 ```
 
 ## Examples
