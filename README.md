@@ -6,7 +6,7 @@ Hide data in neural networks.
 
 ## How it works
 
-For now, a static topology of { 16, 10, 24, <compressed message size> } is used to train
+For now, a static topology of { 16, 10, 24, compressed message size } is used to train
 a neural network to magic inputs that output floats mapped to a serialized character 
 format (base64 in this case).
 
