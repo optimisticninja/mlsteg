@@ -365,38 +365,6 @@ static void unsteg_data(const string& password, const string& input_file,
 
 int main(int argc, char** argv)
 {
-  static default_random_engine gen;
-  static uniform_int_distribution<size_t> dis(0, 99);
-  b64 base64 = b64();
-  string alphabet = base64.idx();
-  random_shuffle(alphabet.begin(), alphabet.end());
-  map<char, float> mapping;
-  size_t i = 0;
-  for (char c : alphabet)
-    mapping[c] = i++;
-  string msg = "ohaithisisamessagewithalotofdifferentcharacterzandtransgressionsandthings";
-  string message = base64.encode(msg.c_str());
-  // encode
-  vector<float> expected;
-  for (char c : message)
-    expected.push_back(mapping[c] / 100);
-  vector<size_t> shape = {16, 10, 24, message.length()};
-  bpnn<float> nn(shape);
-  static uniform_real_distribution<float> dis2(0, 1);
-  vector<float> inputs(shape[0], 0);
-  vector<vector<float>> samples = {inputs};
-  vector<vector<float>> sample_expected = {expected};
-  nn.train(samples, sample_expected, 10000);
-  vector<float> outputs = nn.forward(inputs);
-  string decoded;
-  for (float output : outputs) {
-    int round = output * 100 + .5;
-    for (auto& it : mapping)
-      if (it.second == round)
-        decoded += it.first;
-  }
-  cout << base64.decode(decoded);
-
   bool unsteg = "";
   string password = "";
   string output_file = "";
