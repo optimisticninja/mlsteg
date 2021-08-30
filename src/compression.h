@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -13,7 +12,7 @@ using namespace std;
 
 namespace lzma
 {
-  void compress(const string& src, string& dest)
+  void compress(const string& src, vector<u8>& dest)
   {
     vector<u8> buffer;
     const size_t BUFSIZE = 128 * 1024;
@@ -52,13 +51,14 @@ namespace lzma
     assert(deflate_res == Z_STREAM_END);
     buffer.insert(buffer.end(), temp_buffer, temp_buffer + BUFSIZE - strm.avail_out);
     deflateEnd(&strm);
-    dest = string(buffer.begin(), buffer.end());
+    dest.swap(buffer);
   }
 
-  size_t decompress(const string& src, string& dest)
+  size_t decompress(const vector<u8>& src, vector<u8>& dest)
   {
     z_stream strm;
     strm.total_in = strm.avail_in = src.size();
+
     strm.next_in = (u8*) src.data();
     strm.next_out = (u8*) dest.data();
 

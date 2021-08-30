@@ -33,6 +33,21 @@ namespace po = boost::program_options;
 
 enum { SUCCESS, ERROR_IN_COMMAND_LINE, ERROR_UNHANDLED_EXCEPTION, ERROR_INVALID_JSON };
 
+class VectorSink : public Bufferless<Sink>
+{
+public:
+  VectorSink(vector<uint8_t>& out) : _out(&out) {}
+
+  size_t Put2(const byte* inString, size_t length, int /*messageEnd*/, bool /*blocking*/)
+  {
+    _out->insert(_out->end(), inString, inString + length);
+    return 0;
+  }
+
+private:
+  vector<uint8_t>* _out;
+};
+
 static void help(const po::options_description& desc)
 {
   string msg = "mlsteg - hide messages in neural network weights";
@@ -44,9 +59,8 @@ static void steg_data(const string& password, const string& input_file, const st
 {
   string data;
   stringstream ss;
-  string compressed;
-  string encrypted;
-  string dna;
+  vector<u8> compressed;
+  vector<u8> encrypted;
 
   if (input_file != "") {
     if (file_exists(input_file)) {
@@ -69,6 +83,7 @@ static void steg_data(const string& password, const string& input_file, const st
     string compressing = "[*] Compressing...";
     cerr << compressing << endl;
     lzma::compress(data, compressed);
+    cout << compressed << endl;
   }
 
   if (password != "") {
@@ -81,28 +96,31 @@ static void steg_data(const string& password, const string& input_file, const st
     PKCS5_PBKDF2_HMAC<SHA256> pbkdf;
     pbkdf.DeriveKey(derived, sizeof(derived), purpose, (byte*) password.data(), password.size(), NULL, 0,
                     1024, 0.0f);
-    string& plaintext = disable_compression ? data : compressed;
+    vector<u8> data_vec(data.begin(), data.end());
+    vector<u8>& plaintext = disable_compression ? data_vec : compressed;
 
     try {
       CBC_Mode<AES>::Encryption e;
       e.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
-      StringSource ss( plaintext, true, 
-        new StreamTransformationFilter( e,
-            new StringSink( encrypted )
-        ));
+      //       string s(plaintext.begin(), plaintext.end())
+      StringSource ss(string(plaintext.begin(), plaintext.end()), true,
+                      new StreamTransformationFilter(e, new VectorSink(encrypted)));
     } catch (const Exception& e) {
       cerr << e.what() << endl;
       exit(1);
     }
   }
 
+  cout << encrypted.size() << endl;
   string encoding = "[*] Encoding network...";
 
   // base64 encode message
   b64 base64;
   cerr << encoding << endl;
-  string encoded = password != "" ? base64.encode(encrypted.c_str())
-                                  : base64.encode((disable_compression ? data.data() : compressed.c_str()));
+  string encoded =
+      password != ""
+          ? base64.encode(encrypted)
+          : base64.encode((disable_compression ? vector<u8>(data.begin(), data.end()) : compressed));
   string alphabet = base64.idx();
   random_shuffle(alphabet.begin(), alphabet.end());
 
@@ -293,10 +311,11 @@ static void unsteg_data(const string& password, const string& input_file,
   // base64 decode
   b64 base64;
   string tmp = ss.str();
-  string decoded = base64.decode(tmp);
+  string decoded = base64.decode(ss.str());
+  // decoded.resize(decoded.size() + (decoded.size() % 16));
 
   // decrypt
-  string decrypted;
+  vector<u8> decrypted;
   if (password != "") {
     string decoding = "[*] Decrypting data...";
     cerr << decoding << endl;
@@ -311,27 +330,32 @@ static void unsteg_data(const string& password, const string& input_file,
                     1024, 0.0f);
 
     try {
+      cout << decoded.size() << endl;
       CBC_Mode<AES>::Decryption d;
       d.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
-      StringSource ss( decoded, true, 
-        new StreamTransformationFilter( d,
-            new StringSink( decrypted )
-        ));
+      StringSource ss(decoded, true, new StreamTransformationFilter(d, new VectorSink(decrypted)));
     } catch (const Exception& e) {
       cerr << e.what() << endl;
       exit(1);
     }
   }
-  
   // decompress
 
-  size_t decompressed_size = 0;
-  string decompressed;
+  int decompressed_size = 0;
+  vector<u8> decompressed(data.size() * 2);
+  //   decrypted.push_back(0);
   if (!disable_compression) {
     string decompressing = "[*] Decompressing data...";
     cerr << decompressing << endl;
     decompressed_size = lzma::decompress(decrypted, decompressed);
+
+    if (decompressed_size < 1) {
+      cerr << "ERROR: Failure to decompress data" << endl;
+      exit(ERROR_UNHANDLED_EXCEPTION);
+    }
   }
+
+  cout << decompressed_size << endl;
 
   if (output_file != "") {
     ofstream ofs(output_file, ios_base::out | ios_base::binary);

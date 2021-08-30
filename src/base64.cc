@@ -3,15 +3,16 @@
 
 #include "base64.h"
 
-string b64::encode(const char* bytes)
+string b64::encode(const vector<u8>& bytes)
 {
   string encoded;
   int i = 0, j = 0;
   unsigned char chunk3b[3], chunk4b[4];
-  size_t bytes_len = strlen(bytes);
+  size_t bytes_len = bytes.size();
 
+  size_t bi = 0;
   while (bytes_len--) {
-    chunk3b[i++] = *(bytes++);
+    chunk3b[i++] = bytes[bi++];
 
     if (i == 3) {
       chunk4b[0] = (chunk3b[0] & 0xfc) >> 2;
