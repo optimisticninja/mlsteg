@@ -146,7 +146,12 @@ static void steg_data(const string& password, const string& input_file, const st
   // create magic inputs
   static default_random_engine gen;
   static uniform_real_distribution<float> dis2(0, 1);
+  // FIXME: Why are random values all zero?
   vector<float> inputs(shape[0], dis2(gen));
+  cout << "Magic inputs: ";
+  for (auto input : inputs)
+    cout << input << " ";
+  cout << endl;
   vector<vector<float>> samples = {inputs};
   vector<vector<float>> sample_expected = {expected};
 
@@ -179,7 +184,7 @@ static void steg_data(const string& password, const string& input_file, const st
   network["derivative"] = "sech";
 
   Json::StreamWriterBuilder builder;
-  const std::unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+  const unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
   if (output_file != "") {
     ofstream ofs(output_file);
     writer->write(network, &ofs);
@@ -245,11 +250,11 @@ static void unsteg_data(const string& password, const string& input_file, const 
   shape.push_back(num_outputs);
   bpnn<float> nn(shape);
   nn.net(net);
-  // TODO: Magic inputs
-  vector<float> outputs = nn.forward(inputs);
-
+  // TODO: Magic inputs (how do we provide to CLI?)
+  vector<float> inputs(16);
   // feed inputs through network
-  // map output to characters
+  vector<float> outputs = nn.forward(inputs);
+  // TODO: map output to characters (how do we provide to CLI?)
 
   // base64 decode
   // decrypt
@@ -317,11 +322,9 @@ int main(int argc, char** argv)
   string decoded;
   for (float output : outputs) {
     int round = output * 100 + .5;
-    for (auto& it : mapping) {
-      if (it.second == round) {
+    for (auto& it : mapping)
+      if (it.second == round)
         decoded += it.first;
-      }
-    }
   }
   cout << base64.decode(decoded);
 
