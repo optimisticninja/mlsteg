@@ -16,6 +16,17 @@ The network will output the following after the stegging process:
 2. Character mappings
 3. Magic inputs
 
+## Dependencies
+
+* CMake
+* Boost (program_options)
+* Crypto++
+* libjsoncpp
+
+```bash
+sudo apt install cmake libboost-dev libcrypto++-dev libjsoncpp-dev
+```
+
 ## Examples
 
 **network.json**
