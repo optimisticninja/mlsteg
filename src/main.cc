@@ -54,6 +54,92 @@ static void help(const po::options_description& desc)
   cout << msg << endl << desc << endl;
 }
 
+void encrypt(const string& password, const string& data, vector<u8>& dest)
+{
+  cerr << "[*] Encrypting data..." << endl;
+  char purpose = 0;
+  SecByteBlock derived(32);
+
+  PKCS5_PBKDF2_HMAC<SHA256> pbkdf;
+  pbkdf.DeriveKey(derived, sizeof(derived), purpose, (byte*) password.data(), password.size(), NULL, 0, 1024,
+                  0.0f);
+  vector<u8> data_vec(data.begin(), data.end());
+
+  try {
+    CBC_Mode<AES>::Encryption e;
+    e.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
+    //       string s(plaintext.begin(), plaintext.end())
+    StringSource ss(string(data_vec.begin(), data_vec.end()), true,
+                    new StreamTransformationFilter(e, new VectorSink(dest)));
+  } catch (const Exception& e) {
+    cerr << e.what() << endl;
+    exit(1);
+  }
+}
+
+void dump_network(bpnn<float>& nn, const string& encoded, const string& output_file)
+{
+  Json::StreamWriterBuilder builder;
+  const unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+  Json::Value network;
+  Json::Value layers(Json::arrayValue);
+  for (auto& layer : nn.net()) {
+    Json::Value l(Json::arrayValue);
+    for (auto& neuron : layer) {
+      Json::Value n;
+      Json::Value w(Json::arrayValue);
+      vector<float> weights = neuron.weights();
+      for (auto weight : weights)
+        w.append(weight);
+      n["weights"] = w;
+      l.append(n);
+    }
+    layers.append(l);
+  }
+
+  network["layers"] = layers;
+  network["outputs"] = (unsigned) encoded.length();
+  network["activation"] = "tanh";
+  network["derivative"] = "sech";
+
+  if (output_file != "") {
+    ofstream ofs(output_file);
+    writer->write(network, &ofs);
+    ofs.close();
+  } else {
+    writer->write(network, &cout);
+  }
+}
+
+void dump_mapping(const map<char, float> mapping)
+{
+  Json::Value mappings;
+  Json::StreamWriterBuilder builder;
+  const unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+
+  for (auto& t : mapping) {
+    Json::Value mapping(Json::intValue);
+    mapping = t.second;
+    mappings[string(1, t.first)] = t.second;
+  }
+
+  ofstream ofs("mappings.json");
+  writer->write(mappings, &ofs);
+  ofs.close();
+}
+
+void dump_magic_inputs(const vector<float>& inputs)
+{
+  Json::StreamWriterBuilder builder;
+  const unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
+  Json::Value magic_inputs(Json::arrayValue);
+  ofstream ofs = ofstream("inputs.json");
+  for (auto& input : inputs)
+    magic_inputs.append(input);
+  writer->write(magic_inputs, &ofs);
+  ofs.close();
+}
+
 static void steg_data(const string& password, const string& input_file, const string& output_file,
                       __attribute__((unused)) bool disable_compression)
 {
@@ -87,33 +173,12 @@ static void steg_data(const string& password, const string& input_file, const st
   //   }
 
   if (password != "") {
-    char purpose = 0; // unused by Crypto++
-
-    // 32 bytes of derived material. Used to key the cipher.
-    // 16 bytes are for the key, and 16 bytes are for the iv.
-    SecByteBlock derived(32);
-
-    PKCS5_PBKDF2_HMAC<SHA256> pbkdf;
-    pbkdf.DeriveKey(derived, sizeof(derived), purpose, (byte*) password.data(), password.size(), NULL, 0,
-                    1024, 0.0f);
-    vector<u8> data_vec(data.begin(), data.end());
-    //     vector<u8>& plaintext = disable_compression ? data_vec : compressed;
-
-    try {
-      CBC_Mode<AES>::Encryption e;
-      e.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
-      //       string s(plaintext.begin(), plaintext.end())
-      StringSource ss(string(data_vec.begin(), data_vec.end()), true,
-                      new StreamTransformationFilter(e, new VectorSink(encrypted)));
-    } catch (const Exception& e) {
-      cerr << e.what() << endl;
-      exit(1);
-    }
+    encrypt(password, data, encrypted);
   }
 
   string encoding = "[*] Encoding network...";
 
-  // base64 encode message
+  // B64 encode message
   b64 base64;
   cerr << encoding << endl;
   string encoded =
@@ -122,112 +187,40 @@ static void steg_data(const string& password, const string& input_file, const st
   string alphabet = base64.idx();
   random_shuffle(alphabet.begin(), alphabet.end());
 
-  // Map b64 characters to floats
+  // Map B64 characters to floats
   map<char, float> mapping;
   size_t i = 0;
   for (char c : alphabet)
     mapping[c] = i++;
+  dump_mapping(mapping);
 
-  Json::Value mappings;
-  Json::StreamWriterBuilder builder;
-  const unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
-
-  for (auto& t : mapping) {
-    Json::Value mapping(Json::intValue);
-    mapping = t.second;
-    mappings[string(1, t.first)] = t.second;
-  }
-
-  ofstream ofs("mappings.json");
-  writer->write(mappings, &ofs);
-  ofs.close();
-
-  // create expected data
+  // Create expected data for neural net
   vector<float> expected;
   for (char c : encoded)
     expected.push_back(mapping[c] / 100);
 
+  // Shape of the neural net
   vector<size_t> shape = {16, 10, 24, encoded.length()};
-  // create magic inputs
+
+  // Create magic inputs
   static default_random_engine gen;
   static uniform_real_distribution<float> dis2(0, 1);
   // FIXME: Why are random values all zero?
   vector<float> inputs(shape[0], dis2(gen));
-  Json::Value magic_inputs(Json::arrayValue);
-  ofs = ofstream("inputs.json");
-  writer->write(magic_inputs, &ofs);
-  ofs.close();
+  dump_magic_inputs(inputs);
+
+  // Create sample data
   vector<vector<float>> samples = {inputs};
   vector<vector<float>> sample_expected = {expected};
 
-  // train on magic inputs to expected data
+  // Train magic input sample to expected data
   bpnn<float> nn(shape);
   nn.train(samples, sample_expected, 10000);
-
-  // dump network to JSON file
-  Json::Value network;
-  Json::Value layers(Json::arrayValue);
-  for (auto& layer : nn.net()) {
-    Json::Value l(Json::arrayValue);
-    for (auto& neuron : layer) {
-      Json::Value n;
-      Json::Value w(Json::arrayValue);
-      vector<float> weights = neuron.weights();
-      for (auto weight : weights)
-        w.append(weight);
-      n["weights"] = w;
-      l.append(n);
-    }
-    layers.append(l);
-  }
-
-  network["layers"] = layers;
-  network["outputs"] = (unsigned) encoded.length();
-  network["activation"] = "tanh";
-  network["derivative"] = "sech";
-
-  if (output_file != "") {
-    ofstream ofs(output_file);
-    writer->write(network, &ofs);
-    ofs.close();
-  } else {
-    writer->write(network, &cout);
-  }
+  dump_network(nn, encoded, output_file);
 }
 
-static void unsteg_data(const string& password, const string& input_file,
-                        const string& magic_inputs_file = "inputs.json",
-                        const string& mapping_file = "mappings.json", const string& output_file = "unstegged",
-                        __attribute__((unused)) bool disable_compression = false)
+bpnn<float> decode_network(const string& data)
 {
-  string data = "";
-
-  if (input_file != "") {
-    if (file_exists(input_file)) {
-      data = read_file(input_file);
-    } else {
-      string pre = "ERROR: File '";
-      string post = "' does not exist.\n";
-      cerr << pre << input_file << post;
-      exit(ERROR_IN_COMMAND_LINE);
-    }
-  } else {
-    string header = "<<< BEGIN NETWORK JSON (Press CTRL+D when done) >>>\n\n";
-    string footer = "<<< END NETWORK JSON >>>\n\n";
-    cout << header;
-    for (string line; getline(cin, line);)
-      data += line + "\n";
-    cout << endl << footer;
-  }
-
-  if (magic_inputs_file == "") {
-    cerr << "ERROR: Magic inputs file not provided" << endl;
-    exit(ERROR_IN_COMMAND_LINE);
-  }
-
-  // parse json
-  string decoding = "[*] Decoding network JSON...";
-  cerr << decoding << endl;
   Json::Value network;
   Json::Reader reader;
   size_t num_outputs = 0;
@@ -258,11 +251,15 @@ static void unsteg_data(const string& password, const string& input_file,
   shape.push_back(num_outputs);
   bpnn<float> nn(shape);
   nn.net(net);
+  return nn;
+}
 
-  // read magic inputs
-  vector<float> inputs(16);
+vector<float> read_inputs(const string& magic_inputs_file)
+{
+  Json::Reader reader;
   Json::Value magic_inputs(Json::arrayValue);
   string magic_json = "";
+  vector<float> inputs;
 
   if (magic_inputs_file != "") {
     if (file_exists(magic_inputs_file)) {
@@ -277,15 +274,16 @@ static void unsteg_data(const string& password, const string& input_file,
     for (auto& in : magic_inputs)
       inputs.push_back(in.asFloat());
   }
-  // feed inputs through network
-  vector<float> outputs = nn.forward(inputs);
 
-  // map output to characters (how do we provide to CLI?)
+  return inputs;
+}
+
+map<float, char> read_mapping(const string& mapping_file)
+{
   Json::Value mappings;
   ifstream ifs;
   ifs.open(mapping_file);
   Json::CharReaderBuilder builder;
-  builder["collectComments"] = true;
   JSONCPP_STRING errs;
   if (!parseFromStream(builder, ifs, &mappings, &errs)) {
     cerr << "ERROR: Invalid JSON - " << errs << endl;
@@ -296,8 +294,74 @@ static void unsteg_data(const string& password, const string& input_file,
   for (auto& member : mappings.getMemberNames()) {
     mapping[mappings[member].asFloat()] = member[0];
   }
+  return mapping;
+}
 
-  // Decode outputs
+void decrypt(const string& data, vector<u8>& dest, const string& password)
+{
+  string decoding = "[*] Decrypting data...";
+  cerr << decoding << endl;
+  char purpose = 0; // unused by Crypto++
+
+  // 32 bytes of derived material. Used to key the cipher.
+  // 16 bytes are for the key, and 16 bytes are for the iv.
+  SecByteBlock derived(32);
+
+  PKCS5_PBKDF2_HMAC<SHA256> pbkdf;
+  pbkdf.DeriveKey(derived, sizeof(derived), purpose, (byte*) password.data(), password.size(), NULL, 0, 1024,
+                  0.0f);
+
+  try {
+    CBC_Mode<AES>::Decryption d;
+    d.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
+    StringSource ss(data, true, new StreamTransformationFilter(d, new VectorSink(dest)));
+  } catch (const Exception& e) {
+    cerr << e.what() << endl;
+    exit(1);
+  }
+}
+
+static void unsteg_data(const string& password, const string& input_file,
+                        const string& magic_inputs_file = "inputs.json",
+                        const string& mapping_file = "mappings.json", const string& output_file = "unstegged",
+                        __attribute__((unused)) bool disable_compression = false)
+{
+  string data = "";
+
+  if (input_file != "") {
+    if (file_exists(input_file)) {
+      data = read_file(input_file);
+    } else {
+      string pre = "ERROR: File '";
+      string post = "' does not exist.\n";
+      cerr << pre << input_file << post;
+      exit(ERROR_IN_COMMAND_LINE);
+    }
+  } else {
+    cerr << "ERROR: Network topology file not provided" << endl;
+    exit(ERROR_IN_COMMAND_LINE);
+  }
+
+  if (magic_inputs_file == "") {
+    cerr << "ERROR: Magic inputs file not provided" << endl;
+    exit(ERROR_IN_COMMAND_LINE);
+  }
+
+  // Decode and build network
+  string decoding = "[*] Decoding network JSON...";
+  cerr << decoding << endl;
+  bpnn<float> nn = decode_network(data);
+
+  // Read magic inputs
+  vector<float> inputs = read_inputs(magic_inputs_file);
+
+  // Feed inputs through network
+  vector<float> outputs = nn.forward(inputs);
+
+  // Map output to characters (how do we provide to CLI?)
+  map<float, char> mapping = read_mapping(mapping_file);
+
+  // Decode network outputs
   stringstream ss;
   for (float f : outputs) {
     int round = f * 100 + .5;
@@ -306,36 +370,16 @@ static void unsteg_data(const string& password, const string& input_file,
         ss << it.second;
   }
 
-  // base64 decode
+  // B64 decode
   b64 base64;
   string tmp = ss.str();
   string decoded = base64.decode(ss.str());
-  // decoded.resize(decoded.size() + (decoded.size() % 16));
 
-  // decrypt
+  // Decrypt
   vector<u8> decrypted;
-  if (password != "") {
-    string decoding = "[*] Decrypting data...";
-    cerr << decoding << endl;
-    char purpose = 0; // unused by Crypto++
+  if (password != "")
+    decrypt(decoded, decrypted, password);
 
-    // 32 bytes of derived material. Used to key the cipher.
-    // 16 bytes are for the key, and 16 bytes are for the iv.
-    SecByteBlock derived(32);
-
-    PKCS5_PBKDF2_HMAC<SHA256> pbkdf;
-    pbkdf.DeriveKey(derived, sizeof(derived), purpose, (byte*) password.data(), password.size(), NULL, 0,
-                    1024, 0.0f);
-
-    try {
-      CBC_Mode<AES>::Decryption d;
-      d.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
-      StringSource ss(decoded, true, new StreamTransformationFilter(d, new VectorSink(decrypted)));
-    } catch (const Exception& e) {
-      cerr << e.what() << endl;
-      exit(1);
-    }
-  }
   // decompress
 
   //   int decompressed_size = 0;
