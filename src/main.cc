@@ -9,14 +9,9 @@
 #include <boost/program_options.hpp>
 
 #include <crypto++/cryptlib.h>
-// #include <crypto++/eax.h>
-#include <crypto++/files.h>
-#include <crypto++/hex.h>
 #include <crypto++/modes.h>
 #include <crypto++/osrng.h>
 #include <crypto++/pwdbased.h>
-#include <crypto++/rijndael.h>
-#include <crypto++/sha.h>
 
 #include <jsoncpp/json/json.h>
 
