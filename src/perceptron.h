@@ -1,8 +1,8 @@
 #pragma once
 
-#include <vector>
-#include <random>
 #include <iostream>
+#include <random>
+#include <vector>
 
 #include "maths.h"
 
@@ -60,6 +60,7 @@ public:
 
   T weight(size_t index) { return _weights[index]; }
   void weight(size_t index, T x) { _weights[index] = x; }
+  vector<T> weights() { return _weights; }
   T output() { return _output; }
   T delta() { return _delta; }
   void delta(T x) { _delta = x; }
