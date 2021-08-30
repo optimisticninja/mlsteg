@@ -9,10 +9,10 @@
 #include <boost/program_options.hpp>
 
 #include <crypto++/cryptlib.h>
-#include <crypto++/eax.h>
+// #include <crypto++/eax.h>
 #include <crypto++/files.h>
 #include <crypto++/hex.h>
-//#include <crypto++/modes.h>
+#include <crypto++/modes.h>
 #include <crypto++/osrng.h>
 #include <crypto++/pwdbased.h>
 #include <crypto++/rijndael.h>
@@ -80,15 +80,16 @@ static void steg_data(const string& password, const string& input_file, const st
 
     PKCS5_PBKDF2_HMAC<SHA256> pbkdf;
     pbkdf.DeriveKey(derived, sizeof(derived), purpose, (byte*) password.data(), password.size(), NULL, 0,
-                    15000);
+                    1024, 0.0f);
     string& plaintext = disable_compression ? data : compressed;
 
     try {
-      EAX<AES>::Encryption e;
+      CBC_Mode<AES>::Encryption e;
       e.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
-      AuthenticatedEncryptionFilter ef(e, new StringSink(encrypted));
-      ef.Put((byte*) plaintext.data(), plaintext.size());
-      ef.MessageEnd();
+      StringSource ss( plaintext, true, 
+        new StreamTransformationFilter( e,
+            new StringSink( encrypted )
+        ));
     } catch (const Exception& e) {
       cerr << e.what() << endl;
       exit(1);
@@ -102,7 +103,6 @@ static void steg_data(const string& password, const string& input_file, const st
   cerr << encoding << endl;
   string encoded = password != "" ? base64.encode(encrypted.c_str())
                                   : base64.encode((disable_compression ? data.data() : compressed.c_str()));
-  cout << encoded << endl;
   string alphabet = base64.idx();
   random_shuffle(alphabet.begin(), alphabet.end());
 
@@ -117,7 +117,6 @@ static void steg_data(const string& password, const string& input_file, const st
   const unique_ptr<Json::StreamWriter> writer(builder.newStreamWriter());
 
   for (auto& t : mapping) {
-    cout << t.first << ": " << t.second << endl;
     Json::Value mapping(Json::intValue);
     mapping = t.second;
     mappings[string(1, t.first)] = t.second;
@@ -133,21 +132,12 @@ static void steg_data(const string& password, const string& input_file, const st
     expected.push_back(mapping[c] / 100);
 
   vector<size_t> shape = {16, 10, 24, encoded.length()};
-  cout << "shape: "
-       << "{16, 10, 24, " << encoded.length() << "}" << endl;
   // create magic inputs
   static default_random_engine gen;
   static uniform_real_distribution<float> dis2(0, 1);
   // FIXME: Why are random values all zero?
   vector<float> inputs(shape[0], dis2(gen));
   Json::Value magic_inputs(Json::arrayValue);
-  cout << "Magic inputs: ";
-  for (auto input : inputs) {
-    cout << input << " ";
-    magic_inputs.append(input);
-  }
-  cout << endl;
-
   ofs = ofstream("inputs.json");
   writer->write(magic_inputs, &ofs);
   ofs.close();
@@ -161,9 +151,7 @@ static void steg_data(const string& password, const string& input_file, const st
   // dump network to JSON file
   Json::Value network;
   Json::Value layers(Json::arrayValue);
-  size_t j = 0;
   for (auto& layer : nn.net()) {
-    cout << j++ << endl;
     Json::Value l(Json::arrayValue);
     for (auto& neuron : layer) {
       Json::Value n;
@@ -305,12 +293,13 @@ static void unsteg_data(const string& password, const string& input_file,
   // base64 decode
   b64 base64;
   string tmp = ss.str();
-  cout << tmp << endl;
   string decoded = base64.decode(tmp);
 
   // decrypt
   string decrypted;
   if (password != "") {
+    string decoding = "[*] Decrypting data...";
+    cerr << decoding << endl;
     char purpose = 0; // unused by Crypto++
 
     // 32 bytes of derived material. Used to key the cipher.
@@ -319,20 +308,21 @@ static void unsteg_data(const string& password, const string& input_file,
 
     PKCS5_PBKDF2_HMAC<SHA256> pbkdf;
     pbkdf.DeriveKey(derived, sizeof(derived), purpose, (byte*) password.data(), password.size(), NULL, 0,
-                    15000);
+                    1024, 0.0f);
 
     try {
-      EAX<AES>::Decryption d;
+      CBC_Mode<AES>::Decryption d;
       d.SetKeyWithIV(derived.data(), 16, derived.data() + 16, 16);
-      AuthenticatedDecryptionFilter df(d, new StringSink(decrypted));
-      df.Put((byte*) decoded.data(), decoded.size());
-      df.MessageEnd();
+      StringSource ss( decoded, true, 
+        new StreamTransformationFilter( d,
+            new StringSink( decrypted )
+        ));
     } catch (const Exception& e) {
       cerr << e.what() << endl;
       exit(1);
     }
   }
-
+  
   // decompress
 
   size_t decompressed_size = 0;
@@ -340,8 +330,7 @@ static void unsteg_data(const string& password, const string& input_file,
   if (!disable_compression) {
     string decompressing = "[*] Decompressing data...";
     cerr << decompressing << endl;
-    // decompressed = vector<u8>(decrypted.size() * 4);
-    //         decompressed_size = lzma::decompress(decrypted, decompressed);
+    decompressed_size = lzma::decompress(decrypted, decompressed);
   }
 
   if (output_file != "") {
